@@ -57,6 +57,10 @@
       {
         "from": "manifest.xml",
         "to": "manifest.xml"
+      },
+      {
+        "from": "skills",
+        "to": "skills"
       }
     ],
     "win": {
@@ -100,10 +104,10 @@
     "@vitejs/plugin-react": "^5.1.1",
     "@yao-pkg/pkg": "^6.11.0",
     "electron": "^39.2.7",
-    "electron-builder": "^25.1.8",
+    "electron-builder": "^26.8.1",
     "html-webpack-plugin": "^5.6.5",
     "sharp": "^0.34.5",
-    "to-ico": "^1.1.5",
+    "to-ico": "^1.0.1",
     "ts-loader": "^9.5.4",
     "typescript": "^5.9.3",
     "vite": "^7.2.6",
@@ -115,8 +119,8 @@
   "dependencies": {
     "@fluentui/react-components": "^9.72.7",
     "@fluentui/react-icons": "^2.0.315",
-    "@github/copilot": "^0.0.412",
-    "@github/copilot-sdk": "^0.1.25",
+    "@github/copilot": "^1.0.34",
+    "@github/copilot-sdk": "^0.2.2",
     "cors": "^2.8.5",
     "express": "^5.2.1",
     "pptxgenjs": "^4.0.1",

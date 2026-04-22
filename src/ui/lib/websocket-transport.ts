@@ -11,7 +11,8 @@ import {
     Message,
     MessageReader,
     MessageWriter,
-} from "vscode-jsonrpc";
+} from "vscode-jsonrpc/browser";
+import { remoteLog } from "./remoteLog";
 
 /** Global byte counters for the WebSocket transport */
 export const trafficStats = {
@@ -29,6 +30,8 @@ export class WebSocketMessageReader extends AbstractMessageReader implements Mes
         super();
         socket.addEventListener("message", async (event) => {
             let bytes: Uint8Array;
+            const dataType = typeof event.data === 'string' ? 'string' : event.data instanceof Blob ? 'blob' : 'arraybuffer';
+            remoteLog("ws-reader", `message received type=${dataType} size=${typeof event.data === 'string' ? event.data.length : event.data.size || event.data.byteLength}`);
             if (event.data instanceof Blob) {
                 bytes = new Uint8Array(await event.data.arrayBuffer());
             } else if (event.data instanceof ArrayBuffer) {
@@ -79,6 +82,15 @@ export class WebSocketMessageReader extends AbstractMessageReader implements Mes
 
             try {
                 const msg = JSON.parse(content);
+                // Debug: log received messages to server
+                const logId = msg.id !== undefined ? `id=${msg.id}` : '';
+                const logMethod = msg.method || '';
+                // For responses (no method, has id), log raw keys to check format
+                if (!msg.method && msg.id !== undefined) {
+                    remoteLog("ws-reader", `response id=${msg.id} keys=${Object.keys(msg).join(',')} jsonrpc=${msg.jsonrpc} hasResult=${msg.result !== undefined} hasError=${msg.error !== undefined}`);
+                } else {
+                    remoteLog("ws-reader", `parsed: ${logMethod} ${logId}`.trim());
+                }
                 this.callback?.(msg);
             } catch {
                 // Skip malformed JSON

@@ -158,6 +158,7 @@ export const App: React.FC = () => {
       const tools = getToolsForHost(host);
       const newClient = await createWebSocketClient(`wss://${location.host}/api/copilot`);
       setClient(newClient);
+      remoteLog("session", "WebSocket client created");
 
       // Fetch models via RPC
       fetchModels(newClient);
@@ -167,6 +168,25 @@ export const App: React.FC = () => {
         : host === Office.HostType.Word ? "Word" 
         : host === Office.HostType.Excel ? "Excel" 
         : "Office";
+
+      // Load design system skills from the server
+      let skillsContent = "";
+      try {
+        console.log("[skills] Fetching skills from server...");
+        const skillsRes = await fetch("/api/skills");
+        console.log("[skills] Response status:", skillsRes.status);
+        const skillsData = await skillsRes.json();
+        console.log("[skills] Loaded skills:", skillsData.skills?.length ?? 0, skillsData.skills?.map((s: { name: string }) => s.name));
+        if (skillsData.skills?.length) {
+          skillsContent = "\n\n--- DESIGN SYSTEM SKILLS ---\nYou have access to the following design system skills. When the user asks you to create or style a presentation, apply the appropriate design system. If the user mentions a specific brand or style (e.g. \"Atea style\", \"GitHub brand\", \"minimal\"), use that skill's guidelines. If no specific style is requested, ask the user which design system they'd like to use.\n\n" +
+            skillsData.skills.map((s: { name: string; content: string }) => 
+              `=== Skill: ${s.name} ===\n${s.content}`
+            ).join("\n\n");
+          console.log("[skills] Skills content length:", skillsContent.length, "characters");
+        }
+      } catch (e) {
+        console.error("[skills] Failed to load skills:", e);
+      }
       
       const systemMessage = {
         mode: "replace" as const,
@@ -190,26 +210,37 @@ ${host === Office.HostType.Excel ? `For Excel:
 - Use get_workbook_content to read cell data
 - The workbook is already open - just call the tools directly` : ''}
 
-Always use your tools to interact with the document. Never ask users to save, export, or provide file paths.`
+Always use your tools to interact with the document. Never ask users to save, export, or provide file paths.
+
+You also have access to Microsoft Work IQ via MCP tools. When the user asks about their emails, calendar, meetings, documents, Teams messages, or people in their organization, use the Work IQ MCP tools to query Microsoft 365 data. Do NOT tell users you can't access their calendar or email — you CAN via the workiq MCP tools.${skillsContent}`
       };
 
       const toolNames = tools.map(t => t.name);
-      // Include CLI built-in web_fetch alongside our Office tools
-      const availableTools = [...toolNames, "web_fetch"];
 
       const newSession = await newClient.createSession({
         model,
         tools,
         systemMessage,
         requestPermission: true,
-        availableTools,
+        mcpServers: {
+          workiq: {
+            type: "local",
+            command: "npx",
+            args: ["-y", "@microsoft/workiq@latest", "mcp"],
+            tools: ["*"],
+          },
+        },
       });
+
+      remoteLog("session", "createSession resolved", { sessionId: newSession?.sessionId });
 
       // Register permission handler on the session
       newSession.registerPermissionHandler(handlePermissionRequest);
       
       setSession(newSession);
+      remoteLog("session", "setSession called");
     } catch (e: any) {
+      remoteLog("session", "startNewSession error", e.message);
       setError(`Failed to create session: ${e.message}`);
     }
   };

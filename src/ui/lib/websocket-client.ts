@@ -3,7 +3,7 @@
  *  Custom client that connects to the Copilot CLI via WebSocket proxy
  *--------------------------------------------------------------------------------------------*/
 
-import { createMessageConnection, MessageConnection } from "vscode-jsonrpc";
+import { createMessageConnection, MessageConnection } from "vscode-jsonrpc/browser";
 import { WebSocketMessageReader, WebSocketMessageWriter } from "./websocket-transport";
 import type {
     SessionConfig,
@@ -13,7 +13,6 @@ import type {
     Tool,
     ToolHandler,
     ToolInvocation,
-    ToolResult,
 } from "@github/copilot-sdk";
 
 interface ToolCallRequestPayload {
@@ -24,7 +23,7 @@ interface ToolCallRequestPayload {
 }
 
 interface ToolCallResponsePayload {
-    result: ToolResult;
+    result: unknown;
 }
 
 export interface PermissionRequest {
@@ -67,7 +66,7 @@ interface PermissionRequestPayload {
     permissionRequest: PermissionRequest;
 }
 
-export interface CreateSessionOptions extends SessionConfig {
+export interface CreateSessionOptions extends Partial<SessionConfig> {
     requestPermission?: boolean;
     workingDirectory?: string;
     availableTools?: string[];
@@ -141,9 +140,101 @@ export class BrowserCopilotSession {
         return () => { this.eventHandlers.delete(handler); };
     }
 
-    _dispatchEvent(event: SessionEvent): void {
+    _dispatchEvent(event: SessionEvent, connection: MessageConnection | null): void {
+        // Handle v3 event-based tool calls
+        if (event.type === "external_tool.requested" && connection) {
+            const { requestId, toolName, toolCallId, arguments: args } = (event as any).data;
+            const handler = this.getToolHandler(toolName);
+            if (handler) {
+                void this._executeToolAndRespond(connection, requestId, toolName, toolCallId, args, handler);
+            } else {
+                console.log('[external_tool.requested] no handler for', toolName);
+                void connection.sendRequest("session.tools.handlePendingToolCall", {
+                    sessionId: this.sessionId,
+                    requestId,
+                    result: {
+                        textResultForLlm: `Tool '${toolName}' not supported`,
+                        resultType: "failure",
+                        error: `tool '${toolName}' not supported`,
+                        toolTelemetry: {},
+                    },
+                });
+            }
+            return; // Don't dispatch to UI event handlers
+        }
+
+        // Handle v3 event-based permission requests
+        if (event.type === "permission.requested" && connection) {
+            const { requestId, permissionRequest } = (event as any).data;
+            void this._executePermissionAndRespond(connection, requestId, permissionRequest);
+            return; // Don't dispatch to UI event handlers
+        }
+
         for (const handler of this.eventHandlers) {
             try { handler(event); } catch { /* ignore */ }
+        }
+    }
+
+    /** Execute a tool handler and send the result back via RPC (v3 protocol). */
+    private async _executeToolAndRespond(
+        connection: MessageConnection,
+        requestId: string,
+        toolName: string,
+        toolCallId: string,
+        args: unknown,
+        handler: ToolHandler,
+    ): Promise<void> {
+        try {
+            const invocation: ToolInvocation = {
+                sessionId: this.sessionId,
+                toolCallId,
+                toolName,
+                arguments: args,
+            };
+            const rawResult = await handler(args, invocation);
+            console.log('[external_tool.requested] result for', toolName);
+            const result = typeof rawResult === "string" ? rawResult : rawResult;
+            await connection.sendRequest("session.tools.handlePendingToolCall", {
+                sessionId: this.sessionId,
+                requestId,
+                result,
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.log('[external_tool.requested] error for', toolName, message);
+            await connection.sendRequest("session.tools.handlePendingToolCall", {
+                sessionId: this.sessionId,
+                requestId,
+                result: {
+                    textResultForLlm: message,
+                    resultType: "failure",
+                    error: message,
+                    toolTelemetry: {},
+                },
+            });
+        }
+    }
+
+    /** Execute a permission handler and send the result back via RPC (v3 protocol). */
+    private async _executePermissionAndRespond(
+        connection: MessageConnection,
+        requestId: string,
+        permissionRequest: PermissionRequest,
+    ): Promise<void> {
+        try {
+            const result = await this._handlePermissionRequest(permissionRequest);
+            console.log('[permission.requested] approved, requestId=', requestId);
+            await connection.sendRequest("session.permissions.handlePendingPermissionRequest", {
+                sessionId: this.sessionId,
+                requestId,
+                result,
+            });
+        } catch {
+            await connection.sendRequest("session.permissions.handlePendingPermissionRequest", {
+                sessionId: this.sessionId,
+                requestId,
+                result: { kind: "denied-interactively-by-user" },
+            });
         }
     }
 
@@ -238,6 +329,9 @@ export class WebSocketCopilotClient {
             streaming: true,
             availableTools: config.availableTools,
             tools: toolDefs,
+            mcpServers: config.mcpServers,
+            skillDirectories: config.skillDirectories,
+            disabledSkills: config.disabledSkills,
         });
 
         const sessionId = (response as { sessionId: string }).sessionId;
@@ -278,7 +372,7 @@ export class WebSocketCopilotClient {
         this.connection.onNotification("session.event", (notification: unknown) => {
             const n = notification as { sessionId?: string; event?: SessionEvent };
             if (n.sessionId && n.event) {
-                this.sessions.get(n.sessionId)?._dispatchEvent(n.event);
+                this.sessions.get(n.sessionId)?._dispatchEvent(n.event, this.connection);
             }
         });
 

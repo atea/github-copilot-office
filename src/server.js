@@ -103,6 +103,32 @@ async function createServer() {
     res.sendStatus(204);
   });
 
+  // Return all skill definitions (SKILL.md files) from the skills directory
+  apiRouter.get('/skills', (req, res) => {
+    try {
+      const skillsDir = path.resolve(__dirname, '..', 'skills');
+      if (!fs.existsSync(skillsDir)) {
+        return res.json({ skills: [] });
+      }
+      const skills = [];
+      for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          const skillFile = path.join(skillsDir, entry.name, 'SKILL.md');
+          if (fs.existsSync(skillFile)) {
+            skills.push({
+              name: entry.name,
+              content: fs.readFileSync(skillFile, 'utf8'),
+            });
+          }
+        }
+      }
+      res.json({ skills });
+    } catch (e) {
+      console.error('[skills] Error loading skills:', e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // List available models by reading from the Copilot SDK type declarations
   apiRouter.get('/models', (req, res) => {
     try {
@@ -142,6 +168,13 @@ async function createServer() {
   // Get server's cwd and home for initial folder picker location
   apiRouter.get('/env', (req, res) => {
     res.json({ cwd: process.cwd(), home: os.homedir() });
+  });
+
+  // Remote logging endpoint for browser-side diagnostics
+  apiRouter.post('/log', (req, res) => {
+    const { tag, message, detail } = req.body || {};
+    console.log(`[browser:${tag}]`, message, detail !== undefined ? JSON.stringify(detail) : '');
+    res.json({ ok: true });
   });
 
   app.use('/api', apiRouter);

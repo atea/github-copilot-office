@@ -105,6 +105,42 @@ async function createServer() {
     }
   });
 
+  // Return all skill definitions (SKILL.md files) from the skills directory
+  apiRouter.get('/skills', (req, res) => {
+    try {
+      const skillsDir = path.join(BASE_PATH, 'skills');
+      console.log('[skills] Loading skills from:', skillsDir, 'exists:', fs.existsSync(skillsDir));
+      if (!fs.existsSync(skillsDir)) {
+        console.log('[skills] Skills directory not found, returning empty');
+        return res.json({ skills: [] });
+      }
+      const skills = [];
+      for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          const skillFile = path.join(skillsDir, entry.name, 'SKILL.md');
+          if (fs.existsSync(skillFile)) {
+            skills.push({
+              name: entry.name,
+              content: fs.readFileSync(skillFile, 'utf8'),
+            });
+          }
+        }
+      }
+      console.log(`[skills] Loaded ${skills.length} skills:`, skills.map(s => s.name).join(', '));
+      res.json({ skills });
+    } catch (e) {
+      console.error('[skills] Error loading skills:', e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Remote logging endpoint for browser-side diagnostics
+  apiRouter.post('/log', (req, res) => {
+    const { tag, message, detail } = req.body || {};
+    console.log(`[browser:${tag}]`, message, detail !== undefined ? JSON.stringify(detail) : '');
+    res.json({ ok: true });
+  });
+
   app.use('/api', apiRouter);
 
   // ========== Static File Serving ==========

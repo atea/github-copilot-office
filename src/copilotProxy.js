@@ -7,6 +7,9 @@ const { pathToFileURL } = require('url');
 const COPILOT_MODULE = path.resolve(__dirname, '../node_modules/@github/copilot/index.js');
 const COPILOT_MODULE_URL = pathToFileURL(COPILOT_MODULE).href;
 
+// Resolve the project root directory (parent of src/)
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+
 // Check if running in Electron
 const isElectron = !!(process.versions && process.versions.electron);
 
@@ -21,22 +24,35 @@ const isElectron = !!(process.versions && process.versions.electron);
  * We use: electron.exe -e "inline code that sets argv and imports copilot"
  */
 function spawnCopilotProcess() {
+  // Try native platform binary first (doesn't need Electron-as-Node)
+  const nativeBin = path.resolve(__dirname, `../node_modules/@github/copilot-${process.platform}-${process.arch}/copilot`);
+  const fs = require('fs');
+  
+  if (fs.existsSync(nativeBin)) {
+    console.log(`[proxy] Using native CLI binary: ${nativeBin}`);
+    return spawn(nativeBin, ['--headless', '--stdio'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: PROJECT_ROOT,
+    });
+  }
+
+  // Fallback: JS entry via Electron-as-Node or system Node
+  console.log(`[proxy] Using JS CLI entry: ${COPILOT_MODULE}`);
   if (isElectron) {
-    // Create inline code that:
-    // 1. Sets process.argv to what the CLI expects (no script path)
-    // 2. Dynamically imports the copilot module
     const wrapperCode = `
-      process.argv = [process.argv[0], '--server', '--stdio'];
+      process.argv = [process.argv[0], '--headless', '--stdio'];
       import('${COPILOT_MODULE_URL}');
     `;
     
     return spawn(process.execPath, ['--input-type=module', '-e', wrapperCode], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      cwd: PROJECT_ROOT,
     });
   } else {
-    return spawn(process.execPath, [COPILOT_MODULE, '--server', '--stdio'], {
+    return spawn(process.execPath, [COPILOT_MODULE, '--headless', '--stdio'], {
       stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: PROJECT_ROOT,
     });
   }
 }
@@ -77,7 +93,8 @@ function setupCopilotProxy(httpsServer) {
 
     child.on('exit', (code) => {
       console.log(`[copilot-cli] exited with code ${code}`);
-      ws.close(1000, 'Child process exited');
+      // Don't close WebSocket immediately - let pending sends complete.
+      // The browser will detect the broken pipe when it tries to send.
     });
 
     // Buffer for incomplete LSP messages
@@ -119,26 +136,48 @@ function setupCopilotProxy(httpsServer) {
                 ? (ev.data?.deltaContent || '').slice(0, 60)
                 : ev.type === 'session.error'
                 ? (ev.data?.message || JSON.stringify(ev.data)).slice(0, 100)
+                : ev.type === 'session.mcp_server_status_changed'
+                ? JSON.stringify(ev.data).slice(0, 200)
+                : ev.type === 'session.mcp_servers_loaded'
+                ? JSON.stringify(ev.data).slice(0, 200)
                 : '';
               console.log(`[proxy→ws] ${ev.type}${preview ? ' ' + preview : ''}`);
             }
           } else if (json.method === 'tool.call') {
-            console.log(`[proxy→ws] tool.call: ${json.params?.toolName}`);
+            console.log(`[proxy→ws] tool.call id=${json.id}: ${json.params?.toolName}`);
           } else if (json.method === 'permission.request') {
-            console.log(`[proxy→ws] permission.request: ${json.params?.permissionRequest?.kind} ${json.params?.permissionRequest?.intention || ''}`);
+            console.log(`[proxy→ws] permission.request id=${json.id}: ${json.params?.permissionRequest?.kind} ${json.params?.permissionRequest?.intention || ''}`);
           } else if (json.method) {
-            console.log(`[proxy→ws] ${json.method}`);
+            console.log(`[proxy→ws] ${json.method} id=${json.id || 'n/a'}`);
+          } else if (json.id !== undefined) {
+            // Log responses (no method, has id)
+            const preview = JSON.stringify(json.result || json.error).slice(0, 200);
+            console.log(`[proxy→ws] response id=${json.id} ${preview}`);
           }
         } catch {}
         
         if (ws.readyState === ws.OPEN) {
-          ws.send(message);
+          ws.send(message.toString('utf8'));
         }
       }
     });
 
     // Proxy WebSocket -> child stdin
     ws.on('message', (data) => {
+      // Log browser→CLI messages for debugging
+      try {
+        const str = typeof data === 'string' ? data : data.toString('utf8');
+        const headerEnd = str.indexOf('\r\n\r\n');
+        if (headerEnd !== -1) {
+          const body = str.slice(headerEnd + 4);
+          const json = JSON.parse(body);
+          if (json.id !== undefined && json.result !== undefined) {
+            console.log(`[ws→proxy] response id=${json.id}`, JSON.stringify(json.result).slice(0, 120));
+          } else if (json.method) {
+            console.log(`[ws→proxy] ${json.method} id=${json.id || 'n/a'}`);
+          }
+        }
+      } catch {}
       if (!child.killed) {
         child.stdin.write(data);
       }
