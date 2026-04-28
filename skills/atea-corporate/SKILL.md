@@ -15,6 +15,30 @@ When creating or styling PowerPoint slides, follow Atea's corporate visual ident
 - Mission: Localized per country, e.g. "We Build the Future with IT" (for Atea ASA)
 - Never mix the vision and mission in the same sentence.
 
+## Logo Usage
+
+The Atea logo files are available as SVG in the `references/` folder: `atea_logo_grey.svg` (primary) and `atea_logo_white.svg` (for dark/coloured backgrounds).
+
+### Preferred Reproduction
+
+- **Default:** Grey logo on white background (primary use).
+- **On green or grey backgrounds:** Use the white logo.
+- **On black or coloured backgrounds:** Use the white logo.
+- **Black logo exception:** Only permitted in logo collections or on facades where all logos must be black due to design requirements.
+
+### Logo on Images
+
+- Place the logo on a single-colour background area or on images with a neutral/mid-tone background.
+- Use simple, clean images with few elements so the logo remains legible.
+- **Don't** place the logo on complicated, patterned, or low-contrast backgrounds.
+
+### Logo Positioning
+
+- When Atea is the main sender: logo in the **bottom-right corner** (footer).
+- For internal use or letters: logo may be in the **top-left corner** (header).
+- When Atea is not the main sender (e.g., partner ads): logo in the **bottom-left corner** (footer).
+- **Never** use two Atea logos on the same page, slide, or banner.
+
 ## Color Palette
 
 ### Primary Colours (use these as default)

@@ -76,12 +76,12 @@ export class PermissionService {
 
     // Allow-all mode: approve everything
     if (this._allowAll) {
-      return { kind: "approved" };
+      return { kind: "approve-once" };
     }
 
     // Auto-approve reads under cwd
     if (request.kind === "read" && cwd && request.path) {
-      if (isUnder(request.path, cwd)) return { kind: "approved" };
+      if (isUnder(request.path, cwd)) return { kind: "approve-once" };
     }
 
     // Check saved rules
@@ -90,11 +90,11 @@ export class PermissionService {
       if (rule.kind !== request.kind) continue;
       const filePath = request.path || request.fileName || request.fullCommandText;
       if (filePath && isUnder(filePath, rule.pathPrefix)) {
-        return { kind: "approved" };
+        return { kind: "approve-once" };
       }
       // Shell rules with matching prefix
       if (request.kind === "shell" && rule.kind === "shell") {
-        return { kind: "approved" };
+        return { kind: "approve-once" };
       }
     }
 

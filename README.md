@@ -78,6 +78,98 @@ The first time you open the add-in you'll be prompted to sign in with your **Git
 
 ---
 
+## 🐳 Docker Deployment (Alternative)
+
+You can run the backend server in Docker for easier deployment and isolation. This uses a **hybrid architecture** where the main server runs in Docker, but Work IQ (M365 integration) runs on the host to access macOS Keychain for authentication.
+
+### Prerequisites
+
+- **Docker** and **Docker Compose**
+- **GitHub CLI** (`gh`) authenticated with `gh auth login`
+- **Work IQ** for M365 features (optional)
+
+### Quick Start
+
+**Terminal 1 — Start the Work IQ host relay (for M365 features):**
+```bash
+node scripts/workiq-host-relay.js
+```
+
+**Terminal 2 — Start the Docker container:**
+```bash
+GITHUB_TOKEN=$(gh auth token) docker compose up --build
+```
+
+The add-in is now available at `https://localhost:52390`.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Office Add-in (Browser)                                        │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Docker Container (port 52390)                                  │
+│  ┌───────────────┐  ┌─────────────────┐  ┌──────────────────┐  │
+│  │ Express Server│  │ GitHub Copilot  │  │ Work IQ Bridge   │  │
+│  │ + React UI    │  │ CLI (native bin)│  │ (MCP → HTTP)     │  │
+│  └───────────────┘  └─────────────────┘  └──────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ HTTP (host.docker.internal:52391)
+┌─────────────────────────────────────────────────────────────────┐
+│  Host Machine                                                   │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │ Work IQ Host Relay (port 52391)                           │  │
+│  │ - Runs @microsoft/workiq natively                         │  │
+│  │ - Has access to macOS Keychain (M365 auth)                │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Why the hybrid approach?
+
+- **GitHub Copilot CLI** runs fine in Docker with a `GITHUB_TOKEN` environment variable
+- **Work IQ** requires interactive Microsoft authentication stored in macOS Keychain, which isn't accessible from Docker
+- The host relay bridges this gap — it runs Work IQ natively on the host where Keychain is available
+
+### Running without Work IQ
+
+If you don't need M365 integration (calendar, email, Teams, people search), you can skip the host relay:
+
+```bash
+GITHUB_TOKEN=$(gh auth token) docker compose up --build
+```
+
+Office tools (creating slides, reading documents, editing spreadsheets) will work normally.
+
+### Docker Compose Configuration
+
+The `docker-compose.yml` includes:
+- Port `52390` for the main server
+- Volume mounts for SSL certs and design skills
+- `GITHUB_TOKEN` passed from the host
+- `WORKIQ_RELAY_URL` pointing to the host relay
+
+### Troubleshooting Docker
+
+**"Session was not created with authentication info":**
+- Make sure you're passing `GITHUB_TOKEN`: `GITHUB_TOKEN=$(gh auth token) docker compose up`
+- Verify your GitHub CLI is authenticated: `gh auth status`
+
+**Work IQ queries timeout or fail:**
+- Check the host relay is running: `curl http://localhost:52391/health`
+- View relay logs: `tail -f /tmp/workiq-relay.log`
+- First M365 query may prompt for sign-in in the host terminal
+
+**Container can't reach host relay:**
+- Docker Compose adds `host.docker.internal` automatically
+- Check `WORKIQ_RELAY_URL` in container: `docker compose exec copilot-office env | grep WORKIQ`
+
+---
+
 ## 🎨 Prompting with the Atea Design Skill
 
 The add-in includes the **Atea Corporate** design skill, which teaches Copilot the full Atea brand guidelines — colors, typography, layout rules, and do's & don'ts. Every slide it generates follows the Atea visual identity automatically.
@@ -176,7 +268,9 @@ https://github.com/user-attachments/assets/41408f8d-a9b8-45b6-a826-f50931c7c249
 |---------|-------------|
 | `npm run dev` | Start development server with hot reload |
 | `npm run build` | Build frontend for production |
-| `npm run start:tray` | Run production server |
+| `npm run start:tray` | Run production server (native) |
+| `docker compose up --build` | Run production server in Docker |
+| `node scripts/workiq-host-relay.js` | Start Work IQ host relay for Docker mode |
 
 ## Troubleshooting
 

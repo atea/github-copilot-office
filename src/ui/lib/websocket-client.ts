@@ -45,8 +45,11 @@ export interface PermissionRequest {
 }
 
 export type PermissionResult =
-    | { kind: "approved" }
-    | { kind: "denied-interactively-by-user" };
+    | { kind: "approve-once" }
+    | { kind: "approve-for-session"; approval?: any }
+    | { kind: "approve-for-location"; approval?: any }
+    | { kind: "reject"; feedback?: string }
+    | { kind: "user-not-available" };
 
 export type PermissionHandler = (request: PermissionRequest) => Promise<PermissionResult>;
 
@@ -233,7 +236,7 @@ export class BrowserCopilotSession {
             await connection.sendRequest("session.permissions.handlePendingPermissionRequest", {
                 sessionId: this.sessionId,
                 requestId,
-                result: { kind: "denied-interactively-by-user" },
+                result: { kind: "reject" },
             });
         }
     }
@@ -259,7 +262,7 @@ export class BrowserCopilotSession {
         if (this.permissionHandler) {
             return this.permissionHandler(request);
         }
-        return { kind: "denied-interactively-by-user" };
+        return { kind: "reject" };
     }
 
     async getMessages(): Promise<SessionEvent[]> {
@@ -423,13 +426,13 @@ export class WebSocketCopilotClient {
             async (params: PermissionRequestPayload) => {
                 const session = this.sessions.get(params.sessionId);
                 if (!session) {
-                    return { result: { kind: "denied-interactively-by-user" } };
+                    return { result: { kind: "reject" } };
                 }
                 try {
                     const result = await session._handlePermissionRequest(params.permissionRequest);
                     return { result };
                 } catch {
-                    return { result: { kind: "denied-interactively-by-user" } };
+                    return { result: { kind: "reject" } };
                 }
             },
         );

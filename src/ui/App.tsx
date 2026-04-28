@@ -76,8 +76,13 @@ export const App: React.FC = () => {
   const sessionCreatedAt = useRef<string>("");
 
   // Permission handler: always approve (read-only builtins are safe)
+  // The Copilot CLI's user-facing permission API expects "approve-once" /
+  // "approve-for-session" / "reject" / "user-not-available" — NOT the
+  // internal "approved" kind. MCP tool permissions go through this code path
+  // (`oYe` in app.js) which throws "unexpected user permission response" on
+  // anything else.
   const handlePermissionRequest = useCallback(
-    () => Promise.resolve({ kind: "approved" as const }),
+    () => Promise.resolve({ kind: "approve-once" as const }),
     [],
   );
 
@@ -217,18 +222,34 @@ You also have access to Microsoft Work IQ via MCP tools. When the user asks abou
 
       const toolNames = tools.map(t => t.name);
 
+      // Fetch runtime config (tells us how to spawn the Work IQ MCP server —
+      // differs between native and Docker deployments).
+      let workiqMcpConfig: any = {
+        type: "local",
+        command: "npx",
+        args: ["-y", "@microsoft/workiq@0.4.0", "mcp"],
+        tools: ["*"],
+      };
+      try {
+        const cfgRes = await fetch("/api/runtime-config");
+        if (cfgRes.ok) {
+          const cfg = await cfgRes.json();
+          if (cfg.workiqMcp) {
+            workiqMcpConfig = cfg.workiqMcp;
+            remoteLog("session", "Using runtime", { runtime: cfg.runtime });
+          }
+        }
+      } catch (e) {
+        console.warn("[runtime-config] Failed to fetch, using default", e);
+      }
+
       const newSession = await newClient.createSession({
         model,
         tools,
         systemMessage,
         requestPermission: true,
         mcpServers: {
-          workiq: {
-            type: "local",
-            command: "npx",
-            args: ["-y", "@microsoft/workiq@latest", "mcp"],
-            tools: ["*"],
-          },
+          workiq: workiqMcpConfig,
         },
       });
 

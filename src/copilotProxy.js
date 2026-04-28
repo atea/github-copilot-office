@@ -140,6 +140,10 @@ function setupCopilotProxy(httpsServer) {
                 ? JSON.stringify(ev.data).slice(0, 200)
                 : ev.type === 'session.mcp_servers_loaded'
                 ? JSON.stringify(ev.data).slice(0, 200)
+                : ev.type === 'tool.execution_start'
+                ? JSON.stringify(ev.data).slice(0, 300)
+                : ev.type === 'tool.execution_complete'
+                ? JSON.stringify(ev.data).slice(0, 300)
                 : '';
               console.log(`[proxy→ws] ${ev.type}${preview ? ' ' + preview : ''}`);
             }

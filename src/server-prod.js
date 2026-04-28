@@ -141,6 +141,39 @@ async function createServer() {
     res.json({ ok: true });
   });
 
+  // Runtime config: tells the UI how to spawn the Work IQ MCP server.
+  // When running in Docker the Copilot CLI can't authenticate to M365 directly
+  // (macOS Keychain / Windows WAM are not reachable inside a Linux container),
+  // so we instead spawn a thin bridge that forwards calls over HTTP to a relay
+  // running natively on the host. See scripts/workiq-host-relay.js.
+  apiRouter.get('/runtime-config', (req, res) => {
+    const isDocker = process.env.DOCKERIZED === '1';
+    if (isDocker) {
+      res.json({
+        runtime: 'docker',
+        workiqMcp: {
+          type: 'local',
+          command: 'node',
+          args: ['/app/scripts/workiq-docker-bridge.js'],
+          env: {
+            WORKIQ_RELAY_URL: process.env.WORKIQ_RELAY_URL || 'http://host.docker.internal:52391',
+          },
+          tools: ['*'],
+        },
+      });
+    } else {
+      res.json({
+        runtime: 'native',
+        workiqMcp: {
+          type: 'local',
+          command: 'npx',
+          args: ['-y', '@microsoft/workiq@0.4.0', 'mcp'],
+          tools: ['*'],
+        },
+      });
+    }
+  });
+
   app.use('/api', apiRouter);
 
   // ========== Static File Serving ==========

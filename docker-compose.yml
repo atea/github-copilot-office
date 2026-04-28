@@ -1,0 +1,28 @@
+services:
+  copilot-office:
+    build: .
+    ports:
+      - "52390:52390"
+    # On Linux, host.docker.internal isn't available by default. This makes it
+    # resolve to the host gateway. On Docker Desktop (macOS/Windows) it's a no-op.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Mount certs so you can update them without rebuilding
+      - ./certs:/app/certs:ro
+      # Mount skills for live editing
+      - ./skills:/app/skills:ro
+      # Mount Copilot CLI config (settings, plugins)
+      - ~/.copilot:/root/.copilot
+    environment:
+      - NODE_ENV=production
+      - DOCKERIZED=1
+      # GitHub auth token — required because macOS Keychain isn't accessible in
+      # the container. Set GITHUB_TOKEN in your shell or in a .env file.
+      # Get one with: gh auth token
+      - COPILOT_GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      # URL of the Work IQ host relay (run on the host with:
+      # `node scripts/workiq-host-relay.js`). The container forwards M365
+      # queries to this relay because MSAL auth doesn't work inside Linux containers.
+      - WORKIQ_RELAY_URL=http://host.docker.internal:52391
+    restart: unless-stopped
